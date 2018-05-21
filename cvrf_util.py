@@ -599,10 +599,9 @@ def get_product_name_node(cvrf_doc, cvrf_version, product_id):
     return None
 
 
-def process_related_product_tag_args(args, valid_related_product_tags):
+def process_related_product_tag(related_tags, valid_related_product_tags):
     tags = []
 
-    related_tags = args.related_product_tags
     if related_tags is not None:
         if "all" in related_tags:
             for tag in valid_related_product_tags:
@@ -638,7 +637,7 @@ def get_first_node_in_doc(parsables, cvrf_doc):
     return None
 
 
-def main(progname=None):
+def main(progname=None, **kwargs):
 
     # simple standard python logging
     logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', filename='csaf-parser.log', level=logging.DEBUG)  # filemode='w',
@@ -651,98 +650,156 @@ def main(progname=None):
     default_cvrf_version = "1.2"
     default_output_format = "txt"        # ["csv", "html", "txt"]
 
-    # get specified cvrf version from command line args if any present as its needed to process below args
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--cvrf-version")
-    parser.add_argument("--cvrf")
-    args, unknown = parser.parse_known_args()
+    if 'cvrf_version' in kwargs:
+        cvrf_version = kwargs.get("cvrf_version")
+    else:
+        # get specified cvrf version from command line args if any present as its needed to process below args
+        parser = argparse.ArgumentParser(add_help=False)
+        parser.add_argument("--cvrf-version")
+        parser.add_argument("--cvrf")
+        args, unknown = parser.parse_known_args()
 
-    # get the cvrf fmt if specified, otherwise use the default
-    cvrf_version = args.cvrf_version if args.cvrf_version else default_cvrf_version
+        # get the cvrf fmt if specified, otherwise use the default
+        cvrf_version = args.cvrf_version if args.cvrf_version else default_cvrf_version
+
     logging.info('cvrf_version: ' + cvrf_version)
 
-    parser = argparse.ArgumentParser(formatter_class=NonDupBracketFormatter,
-                                     description="Validate/parse a CVRF document and emit user-specified bits.")
-
-    parser.add_argument("-f", "--file", required="True", action="store",
-                        help="candidate CVRF XML file")
-
-    parser.add_argument("--cvrf-version", action="store", default=cvrf_version, choices=CVRF_Syntax(cvrf_version).cvrf_versions,
-                        help="specify cvrf version")
-
-    parser.add_argument("--output-file", action="store",
-                        help="specify output file name")
-
-    parser.add_argument("--output-format", action="store", default=default_output_format, choices=CVRF_Syntax(cvrf_version).output_formats,
-                        help="specify output format")
-
-    parser.add_argument("--include-related-product-elements", dest="include_related_product_elements", default=False, action="store_true",
-                        help="specify if output should contains include related product elements.")
-
-    parser.add_argument('--related-product-tags', nargs="*", choices=CVRF_Syntax(cvrf_version).related_product_tags,
-                        action="store",
-                        help="specify related product tags, use \"all\" to glob all related product elements.")
-
-    parser.add_argument("--unique-products", dest="unique_products", default=False, action="store_true",
-                        help="specify if output should contains unique product rows per vulnerability")
-
-    parser.add_argument('--cvrf', nargs="*", choices=CVRF_Syntax(cvrf_version).CVRF_ARGS,
-                        action=namespace_prepend("CVRF", cvrf_version),
-                        help="emit CVRF elements, use \"all\" to glob all CVRF elements.")
-    parser.add_argument("--vuln", nargs="*", choices=CVRF_Syntax(cvrf_version).VULN_ARGS,
-                        action=namespace_prepend("VULN", cvrf_version),
-                        help="emit Vulnerability elements, use \"all\" to glob all Vulnerability elements.")
-    parser.add_argument("--prod", nargs="*", choices=CVRF_Syntax(cvrf_version).PROD_ARGS,
-                        action=namespace_prepend("PROD", cvrf_version),
-                        help="emit ProductTree elements, use \"all\" to glob all ProductTree elements.")
-
-    parser.add_argument("-c", "--collate", dest="collate_vuln", default=False,
-                        action="store_true",
-                        help="collate all of the Vulnerability elements by ordinal into separate files")
-    parser.add_argument("-s", "--strip-ns", dest="strip_ns", default=False, action="store_true",
-                        help="strip namespace header from element tags before printing")
-    parser.add_argument("-V", "--validate", default=False, action="store_true",
-                        help="validate the CVRF document")
-
-    parser.add_argument("-S", "--schema", action="store",
-                        help="specify local alternative for cvrf.xsd")
-    parser.add_argument("-C", "--catalog", action="store",
-                        help="specify location for catalog.xml (default is {0})".format(CVRF_Syntax(cvrf_version).CVRF_CATALOG))
-
-    parser.add_argument("-v", "--version", action="version", version="%(prog)s " + __revision__)
-
-    args = parser.parse_args()
-    logging.info('command line args processed successfully')
-    logging.info(args)
-
-    logging.info('file to parse: ' + args.file)
-    schema = args.schema if args.schema else CVRF_Syntax(cvrf_version).CVRF_SCHEMA_FILE
-    logging.info('schema: ' + schema)
-
-    catalog = args.catalog if args.catalog else CVRF_Syntax(cvrf_version).CVRF_CATALOG
-    logging.info('catalog: ' + catalog)
-
-    output_format = args.output_format if args.output_format else default_output_format
-    logging.info('output format: ' + output_format)
-
-    output_file = args.output_file if args.output_file else ''
-    if output_file:
-        logging.info('output file: ' + output_file)
-    else:
-        logging.info('output file not specified - using stdout')
-
-    related_product_tags = process_related_product_tag_args(args, CVRF_Syntax(cvrf_version).related_product_tags)
-    logging.info('related_product_tags: ' + ','.join(related_product_tags))
-
-    # Post process argument lists into a single list, handling 'all' globs if present
-    # this block should probably eventually be folded into argparse
     parsables = []
-    if args.cvrf:
-        parsables.extend(post_process_arglist(args.cvrf, "CVRF", CVRF_Syntax(cvrf_version).CVRF_ARGS, cvrf_version))
-    if args.vuln:
-        parsables.extend(post_process_arglist(args.vuln, "VULN", CVRF_Syntax(cvrf_version).VULN_ARGS, cvrf_version))
-    if args.prod:
-        parsables.extend(post_process_arglist(args.prod, "PROD", CVRF_Syntax(cvrf_version).PROD_ARGS, cvrf_version))
+    from_command_line = False
+
+    if 'file' not in kwargs:
+        from_command_line = True
+        parser = argparse.ArgumentParser(formatter_class=NonDupBracketFormatter,
+                                         description="Validate/parse a CVRF document and emit user-specified bits.")
+
+        parser.add_argument("-f", "--file", required="True", action="store",
+                            help="candidate CVRF XML file")
+
+        parser.add_argument("--cvrf-version", action="store", default=cvrf_version, choices=CVRF_Syntax(cvrf_version).cvrf_versions,
+                            help="specify cvrf version")
+
+        parser.add_argument("--output-file", action="store",
+                            help="specify output file name")
+
+        parser.add_argument("--output-format", action="store", default=default_output_format, choices=CVRF_Syntax(cvrf_version).output_formats,
+                            help="specify output format")
+
+        parser.add_argument("--include-related-product-elements", dest="include_related_product_elements", default=False, action="store_true",
+                            help="specify if output should contains include related product elements.")
+
+        parser.add_argument('--related-product-tags', nargs="*", choices=CVRF_Syntax(cvrf_version).related_product_tags,
+                            action="store",
+                            help="specify related product tags, use \"all\" to glob all related product elements.")
+
+        parser.add_argument("--unique-products", dest="unique_products", default=False, action="store_true",
+                            help="specify if output should contains unique product rows per vulnerability")
+
+        parser.add_argument('--cvrf', nargs="*", choices=CVRF_Syntax(cvrf_version).CVRF_ARGS,
+                            action=namespace_prepend("CVRF", cvrf_version),
+                            help="emit CVRF elements, use \"all\" to glob all CVRF elements.")
+        parser.add_argument("--vuln", nargs="*", choices=CVRF_Syntax(cvrf_version).VULN_ARGS,
+                            action=namespace_prepend("VULN", cvrf_version),
+                            help="emit Vulnerability elements, use \"all\" to glob all Vulnerability elements.")
+        parser.add_argument("--prod", nargs="*", choices=CVRF_Syntax(cvrf_version).PROD_ARGS,
+                            action=namespace_prepend("PROD", cvrf_version),
+                            help="emit ProductTree elements, use \"all\" to glob all ProductTree elements.")
+
+        parser.add_argument("-c", "--collate", dest="collate_vuln", default=False,
+                            action="store_true",
+                            help="collate all of the Vulnerability elements by ordinal into separate files")
+        parser.add_argument("-s", "--strip-ns", dest="strip_ns", default=False, action="store_true",
+                            help="strip namespace header from element tags before printing")
+        parser.add_argument("-V", "--validate", default=False, action="store_true",
+                            help="validate the CVRF document")
+
+        parser.add_argument("-S", "--schema", action="store",
+                            help="specify local alternative for cvrf.xsd")
+        parser.add_argument("-C", "--catalog", action="store",
+                            help="specify location for catalog.xml (default is {0})".format(CVRF_Syntax(cvrf_version).CVRF_CATALOG))
+
+        parser.add_argument("-v", "--version", action="version", version="%(prog)s " + __revision__)
+
+        args = parser.parse_args()
+        logging.info('command line args processed successfully')
+        logging.info(args)
+
+        logging.info('file to parse: ' + args.file)
+        schema = args.schema if args.schema else CVRF_Syntax(cvrf_version).CVRF_SCHEMA_FILE
+        logging.info('schema: ' + schema)
+
+        catalog = args.catalog if args.catalog else CVRF_Syntax(cvrf_version).CVRF_CATALOG
+        logging.info('catalog: ' + catalog)
+
+        output_format = args.output_format if args.output_format else default_output_format
+        logging.info('output format: ' + output_format)
+
+        output_file = args.output_file if args.output_file else ''
+        if output_file:
+            logging.info('output file: ' + output_file)
+        else:
+            logging.info('output file not specified - using stdout')
+
+        related_product_tags = process_related_product_tag(args.related_product_tags, CVRF_Syntax(cvrf_version).related_product_tags)
+        logging.info('related_product_tags: ' + ','.join(related_product_tags))
+
+        # Post process argument lists into a single list, handling 'all' globs if present
+        # this block should probably eventually be folded into argparse
+        cvrf = args.cvrf
+        vuln = args.vuln
+        prod = args.prod
+        afile = args.file
+        validate = args.validate
+
+    else:
+        afile = kwargs.get("file")
+        if 'validate' in kwargs:
+            validate = kwargs.get('validate')
+        else:
+            validate = False
+        if 'cvrf' in kwargs:
+            cvrf = kwargs.get('cvrf')
+        else:
+            cvrf = False
+
+        if 'vuln' in kwargs:
+            vuln = kwargs.get('vuln')
+        else:
+            vuln = False
+
+        if 'output' in kwargs:
+            output_file = kwargs.get('output')
+        else:
+            output_file = ''
+
+        if 'output_format' in kwargs:
+            output_format = kwargs.get('output_format')
+        else:
+            output_format = default_output_format
+
+        if 'schema' in kwargs:
+            schema = kwargs.get('schema')
+        else:
+            schema = CVRF_Syntax(cvrf_version).CVRF_SCHEMA_FILE
+
+        logging.info('schema: ' + schema)
+
+        if 'prod' in kwargs:
+            prod = kwargs.get('prod')
+        else:
+            prod = False
+
+        if 'related_product_tags' in kwargs:
+            related_product_tags = kwargs.get('related_product_tags')
+            related_product_tags = process_related_product_tag(related_product_tags, CVRF_Syntax(cvrf_version).related_product_tags)
+        else:
+            related_product_tags = []
+
+    if cvrf:
+        parsables.extend(post_process_arglist(cvrf, "CVRF", CVRF_Syntax(cvrf_version).CVRF_ARGS, cvrf_version))
+    if vuln:
+        parsables.extend(post_process_arglist(vuln, "VULN", CVRF_Syntax(cvrf_version).VULN_ARGS, cvrf_version))
+    if prod:
+        parsables.extend(post_process_arglist(prod, "PROD", CVRF_Syntax(cvrf_version).PROD_ARGS, cvrf_version))
 
     logging.info('parse doc for below elements')
     logging.info('\n'.join(parsables))
@@ -751,14 +808,14 @@ def main(progname=None):
     # to pass to the CVRF validator/parser
     try:
         logging.info('parsing document...')
-        cvrf_doc = etree.parse(args.file, etree.XMLParser(encoding="utf-8"))   # "utf-8"
+        cvrf_doc = etree.parse(afile, etree.XMLParser(encoding="utf-8"))   # "utf-8"
         logging.info('document successfully parsed')
     except IOError:
-        logging.error("{0}: I/O error: \"{1}\" does not exist".format(progname, args.file))
-        sys.exit("{0}: I/O error: \"{1}\" does not exist".format(progname, args.file))
+        logging.error("{0}: I/O error: \"{1}\" does not exist".format(progname, afile))
+        sys.exit("{0}: I/O error: \"{1}\" does not exist".format(progname, afile))
     except etree.XMLSyntaxError as e:
-        logging.error("{0}: Parsing error, document \"{1}\" is not well-formed: {2}".format(progname, args.file, e.error_log.filter_from_level(etree.ErrorLevels.FATAL)))
-        sys.exit("{0}: Parsing error, document \"{1}\" is not well-formed: {2}".format(progname, args.file, e.error_log.filter_from_level(etree.ErrorLevels.FATAL)))
+        logging.error("{0}: Parsing error, document \"{1}\" is not well-formed: {2}".format(progname, afile, e.error_log.filter_from_level(etree.ErrorLevels.FATAL)))
+        sys.exit("{0}: Parsing error, document \"{1}\" is not well-formed: {2}".format(progname, afile, e.error_log.filter_from_level(etree.ErrorLevels.FATAL)))
 
     # check to make sure cvrf namespace in doc matches cvrf version from command line args
     logging.info('verifying cvrf version...')
@@ -778,23 +835,23 @@ def main(progname=None):
         logging.error('Unable to check cvrf version in document. Cannot parse document or get node based on specified parseable elements!\nProbably a cvrf version mismatch...try using different cvrf version.')
         sys.exit("{0}: Unable to check cvrf version in document. Cannot parse document or get node based on specified parseable elements!\nProbably a cvrf version mismatch...try using different cvrf version.".format(progname))
 
-    if args.validate is True:
+    if validate is True:
         logging.info('validating cvrf document...')
 
         try:
-            if args.schema:
+            if from_command_line and args.schema:
                 # Try to use local schema files
                 f = open(args.schema, 'r')
 
                 # If the supplied file is not a valid catalog.xml or doesn't exist lxml will fall back to using remote validation
-                catalog = args.catalog if args.catalog else CVRF_Syntax(cvrf_version).CVRF_CATALOG
+                catalog = args.catalog if from_command_line and args.catalog else CVRF_Syntax(cvrf_version).CVRF_CATALOG
                 os.environ.update(XML_CATALOG_FILES=catalog)
             else:
                 # try to use local schema file
                 schema = CVRF_Syntax(cvrf_version).CVRF_SCHEMA_FILE
                 f = open(schema, 'r')
 
-                catalog = args.catalog if args.catalog else CVRF_Syntax(cvrf_version).CVRF_CATALOG
+                catalog = args.catalog if from_command_line and args.catalog else CVRF_Syntax(cvrf_version).CVRF_CATALOG
                 os.environ.update(XML_CATALOG_FILES=catalog)
 
         except IOError as e:
@@ -814,6 +871,7 @@ def main(progname=None):
     logging.info('calling cvrf_dispatch...')
     cvrf_dispatch(cvrf_doc, parsables, args.collate_vuln, args.strip_ns, cvrf_version, output_format, output_file, args, related_product_tags)
     logging.info('successfully finished...')
+
 
 if __name__ == "__main__":
     progname = os.path.basename(sys.argv[0])
