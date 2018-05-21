@@ -219,7 +219,7 @@ def print_node(cvrf_doc, cvrf_version, args, output_format, node, strip_ns, f=sy
                 html += '<td bgcolor="#ffffff">' + related_value_txt + '</td>'
 
         html += '</tr>'
-        print >> f, html
+        print >> f, html.encode('utf-8')
 
     if output_format == 'txt':
         if node.tag:
