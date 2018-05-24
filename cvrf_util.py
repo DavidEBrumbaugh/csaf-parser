@@ -24,6 +24,11 @@ import csv
 from datetime import datetime
 import logging
 from lxml import etree
+try:
+    from cStringIO import StringIO
+except:
+    from StringIO import StringIO
+
 
 __revision__ = "1.2.0"
 
@@ -87,6 +92,12 @@ class NonDupBracketFormatter(argparse.HelpFormatter):
             result = super(NonDupBracketFormatter, self)._format_args(
                 action, default_metavar)
         return result
+
+
+class FakeArgs:
+    def __init__(self):
+        pass
+
 
 
 # is node in the vuln namespace?
@@ -309,9 +320,13 @@ def cvrf_dump(results, strip_ns, output_format, cvrf_doc, cvrf_version, args, re
     results: a dictionary of the format: {filename, [ElementTree node, ...], ...}
     strip_ns: boolean that when true indicates the namespace prefix will be chomped
     """
+    should_close = True
     for key in results:
         if key == output_format:       # if no file name specified, use stdout - "stdout"
             f = sys.stdout
+        elif isinstance(key, type(StringIO())):
+            f = key
+            should_close = False
         else:
             f = open(key, "w")
 
@@ -322,7 +337,8 @@ def cvrf_dump(results, strip_ns, output_format, cvrf_doc, cvrf_version, args, re
 
         print_footer_rows(cvrf_doc, cvrf_version, args, output_format, f, related_product_tags)
 
-        f.close()
+        if should_close:
+            f.close()
 
 
 def cvrf_dispatch(cvrf_doc, parsables, collate_vuln, strip_ns, cvrf_version, output_format, output_file, args, related_product_tags):
@@ -615,7 +631,16 @@ def process_related_product_tag(related_tags, valid_related_product_tags):
 
 
 def post_process_arglist(arg, namespace, valid_args, cvrf_version):
+    print "arg:"
+    print arg
+    print " namespace: "
+    print namespace
+    print "valid_args "
+    print valid_args
+    print "cvrf_version"
+    print cvrf_version
     parsables = []
+
 
     if CVRF_Syntax(cvrf_version).NAMESPACES[namespace] + "all" in arg:
         for element in valid_args:
@@ -749,20 +774,41 @@ def main(progname=None, **kwargs):
         prod = args.prod
         afile = args.file
         validate = args.validate
+        collate_vuln = args.collate_vuln
+        strip_ns = args.strip_ns
 
     else:
         afile = kwargs.get("file")
+
+        unique_products = False
+        if 'unique_products' in kwargs:
+            unique_products = kwargs.get('unique_products')
+
+        args = FakeArgs()
+        args.file = 'In Memory'
+        args.unique_products = False
+        if 'unique_products' in kwargs:
+            validate = kwargs.get('unique_products')
+
+        args.include_related_product_elements = False
+        if 'include_related_product_elements' in kwargs:
+            args.include_related_product_elements = kwargs.get('include_related_product_elements')
+
         if 'validate' in kwargs:
             validate = kwargs.get('validate')
         else:
             validate = False
         if 'cvrf' in kwargs:
-            cvrf = kwargs.get('cvrf')
+            cvrf = CVRF_Syntax(cvrf_version).NAMESPACES["CVRF"] + kwargs.get('cvrf')
+            if kwargs.get('cvrf') != 'all':
+                cvrf = [cvrf]
         else:
             cvrf = False
 
         if 'vuln' in kwargs:
-            vuln = kwargs.get('vuln')
+            vuln = CVRF_Syntax(cvrf_version).NAMESPACES["VULN"] + kwargs.get('vuln')
+            if kwargs.get('vuln') != 'all':
+                vuln = [vuln]
         else:
             vuln = False
 
@@ -781,10 +827,20 @@ def main(progname=None, **kwargs):
         else:
             schema = CVRF_Syntax(cvrf_version).CVRF_SCHEMA_FILE
 
+        collate_vuln = False
+        if 'collate_vuln' in kwargs:
+            collate_vuln = kwargs.get('collate_vuln')
+
+        strip_ns = False
+        if 'strip_ns' in kwargs:
+            strip_ns = kwargs.get('strip_ns')
+
         logging.info('schema: ' + schema)
 
         if 'prod' in kwargs:
-            prod = kwargs.get('prod')
+            prod = CVRF_Syntax(cvrf_version).NAMESPACES["PROD"] + kwargs.get('prod')
+            if kwargs.get('prod') != 'all':
+                prod = [prod]
         else:
             prod = False
 
@@ -796,8 +852,10 @@ def main(progname=None, **kwargs):
 
     if cvrf:
         parsables.extend(post_process_arglist(cvrf, "CVRF", CVRF_Syntax(cvrf_version).CVRF_ARGS, cvrf_version))
+
     if vuln:
         parsables.extend(post_process_arglist(vuln, "VULN", CVRF_Syntax(cvrf_version).VULN_ARGS, cvrf_version))
+
     if prod:
         parsables.extend(post_process_arglist(prod, "PROD", CVRF_Syntax(cvrf_version).PROD_ARGS, cvrf_version))
 
@@ -859,7 +917,8 @@ def main(progname=None, **kwargs):
             sys.exit("{0}: I/O error({1}) \"{2}\": {3}".format(progname, e.errno, schema, e.strerror))
 
         (code, result) = cvrf_validate(f, cvrf_doc)
-        f.close()
+        if from_command_line:
+            f.close()
 
         if code is False:
             logging.error("{0}: {1}".format(progname, result))
@@ -869,7 +928,7 @@ def main(progname=None, **kwargs):
             print >> sys.stderr, result
 
     logging.info('calling cvrf_dispatch...')
-    cvrf_dispatch(cvrf_doc, parsables, args.collate_vuln, args.strip_ns, cvrf_version, output_format, output_file, args, related_product_tags)
+    cvrf_dispatch(cvrf_doc, parsables, collate_vuln, strip_ns, cvrf_version, output_format, output_file, args, related_product_tags)
     logging.info('successfully finished...')
 
 
