@@ -23,6 +23,7 @@ AUTHOR = 'Omar Santos'
 # What packages are required for this module to be executed?
 REQUIRED = [
     'lxml',
+    'unicodecsv',
 ]
 
 # The rest you shouldn't have to touch too much :)
