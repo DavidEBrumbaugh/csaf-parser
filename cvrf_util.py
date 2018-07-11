@@ -20,7 +20,7 @@ import copy
 import codecs
 import urllib2
 import argparse
-import csv
+import unicodecsv as csv
 from datetime import datetime
 import logging
 from lxml import etree
